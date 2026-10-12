@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // تطبيق شخصي: لا قراءة ولا كتابة إلا لمستخدم مسجّل الدخول.
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+
+// تشديد اختياري (موصى به): اسمح لبريدك أنت فقط. استبدل السطر أعلاه بـ:
+//   allow read, write: if request.auth != null
+//                      && request.auth.token.email == "your-email@example.com";
