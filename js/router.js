@@ -3,6 +3,7 @@ const ROUTES = {
   services:    { title: "برنامج الخدمات", load: () => import("./views/services.js") },
   people:      { title: "الأفراد",         load: () => import("./views/people.js") },
   assignments: { title: "التعيينات",       load: () => import("./views/assignments.js") },
+  documents:   { title: "الوثائق والمهام", load: () => import("./views/documents.js") },
   stats:       { title: "الإحصائيات",      load: () => import("./views/stats.js") },
   settings:    { title: "الإعدادات",       load: () => import("./views/settings.js") },
 };

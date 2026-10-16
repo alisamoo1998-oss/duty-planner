@@ -11,6 +11,8 @@ export const COL = Object.freeze({
   ASSIGNMENTS: "assignments",
   DAILY: "daily_services",
   SETTINGS: "settings",
+  DOCUMENTS: "documents",
+  DOC_TYPES: "doc_types",
 });
 
 const withId = (snap) => ({ id: snap.id, ...snap.data() });
@@ -109,4 +111,33 @@ export const settingsApi = {
   get: (key) => getById(COL.SETTINGS, key),
   set: (key, value) =>
     setDoc(doc(db, COL.SETTINGS, key), { ...value, updatedAt: serverTimestamp() }, { merge: true }),
+};
+
+// ---------- الوثائق والمهام (Duty Docs) ----------
+// مجموعات مستقلة: documents و doc_types. تعتمد على people الموجودين ولا تمسّهم.
+export const documentsApi = {
+  list: () => listAll(COL.DOCUMENTS),
+  get: (id) => getById(COL.DOCUMENTS, id),
+  add: (d) => create(COL.DOCUMENTS, d),
+  update: (id, data) => patch(COL.DOCUMENTS, id, data),
+  remove: (id) => remove(COL.DOCUMENTS, id),
+};
+
+export const docTypesApi = {
+  list: () => listAll(COL.DOC_TYPES),
+  get: (id) => getById(COL.DOC_TYPES, id),
+  add: (t) => create(COL.DOC_TYPES, t),
+  update: (id, data) => patch(COL.DOC_TYPES, id, data),
+  remove: (id) => remove(COL.DOC_TYPES, id),
+  // يضمن الأنواع الافتراضية مرة واحدة دون استبدال الموجود
+  ensureDefaults: async (defaults) => {
+    const existing = await listAll(COL.DOC_TYPES);
+    if (existing.length > 0) return { created: 0, existing: existing.length };
+    let created = 0;
+    for (const name of defaults) {
+      await create(COL.DOC_TYPES, { name, isDefault: true });
+      created += 1;
+    }
+    return { created, existing: 0 };
+  },
 };
