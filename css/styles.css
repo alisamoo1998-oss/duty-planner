@@ -388,6 +388,16 @@ a { color: inherit; }
 #rp-msg:not(:empty) { padding: 10px 18px 0; }
 #rp-msg .notice { margin: 0 0 6px; }
 .rp-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 18px; }
+.rp-cols { margin: 0; padding: 12px 18px; border: 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.rp-cols legend { padding: 0; margin-bottom: 8px; font-weight: 500; }
+.rp-cols p { margin: 8px 0 0; }
+.rp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.rp-chip { position: relative; display: inline-block; }
+.rp-chip input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.rp-chip span { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 4px 16px; border: 1.5px solid #8a97a5; border-radius: 99px; background: #fff; cursor: pointer; }
+.rp-chip input:checked + span { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 500; }
+.rp-chip input:checked + span::before { content: "✓"; font-weight: 700; }   /* علامة نصية: الحالة لا تعتمد على اللون وحده */
+.rp-chip input:focus-visible + span { outline: 3px solid #5b8fc7; outline-offset: 2px; }
 
 .rp-head { text-align: center; padding: 16px 18px 6px; }
 .rp-title { font-size: 1.4rem; }
@@ -407,15 +417,18 @@ a { color: inherit; }
 .rp-table { width: 100%; min-width: 720px; border-collapse: collapse; }
 .rp-table th { text-align: start; background: #e3e8ed; padding: 8px 12px; font-size: .9rem; border-bottom: 2px solid var(--line); }
 .rp-table td { padding: 8px 12px; vertical-align: top; border-bottom: 1px solid var(--line); }
-.rp-table .rp-date { width: 150px; }
+.rp-table .rp-date { width: 165px; }
 .rp-table th.rp-th-tasks { width: 28%; }   /* المهام تحمل الاسم والمهمة ومدتها فتحتاج عرضًا أكبر */
-.rp-d { display: block; }
-.rp-wd { display: block; font-size: .88rem; }
+.rp-dl { display: block; white-space: nowrap; }   /* اسم اليوم والتاريخ في سطر واحد */
+.rp-wd { font-size: .9rem; }
 .rp-state { display: block; font-size: .78rem; color: var(--muted); margin-top: 2px; }
 .rp-link { display: inline-block; margin-top: 4px; font-size: .8rem; color: var(--brand); }
-.rp-line { padding: 1px 0; overflow-wrap: anywhere; }
-.rp-sub { font-size: .92rem; color: #3d4a58; }
-.rp-note { font-weight: 500; }
+/* خلية الأسماء: «عقون + شيباني + سيش» — الاسم لا ينقسم، ويلتف السطر بين الأسماء فقط عند ضيق العمود */
+.rp-names { line-height: 1.7; }
+.rp-n { white-space: nowrap; }
+.rp-task { white-space: normal; }
+.rp-nm { white-space: nowrap; }
+.rp-note { color: #3d4a58; }
 .rp-assignment { font-style: italic; }
 .rp-span { font-size: .8rem; color: var(--muted); font-style: italic; }
 .rp-none, .rp-muted { color: var(--muted); font-style: italic; font-size: .9rem; }
@@ -437,11 +450,14 @@ a { color: inherit; }
   .rp-apply { flex: 1 1 100%; }
   .rp-actions .btn { flex: 1 1 100%; }
   .rp-table td:first-child, .rp-table th:first-child { position: sticky; right: 0; z-index: 1; }   /* عمود التاريخ ثابت أثناء التمرير الأفقي */
-  .rp-table .rp-date { width: 120px; }
+  .rp-table .rp-date { width: auto; }
 }
 
 /* ---------- طباعة الكشف (أبيض وأسود): لا اعتماد على اللون وحده ---------- */
+/* الكشف على A4 أفقيًا ليتسع أكبر عدد من الأسماء في سطر واحد (الصفحة المسمّاة؛ المتصفح الذي لا يدعمها يطبع عموديًا بلا ضرر) */
+@page report { size: A4 landscape; margin: 10mm; }
 @media print {
+  .rp-report { page: report; }
   .rp-wrap { overflow: visible !important; }
   .rp-report { border: 0 !important; margin: 0 !important; }
   .rp-head { padding: 0 0 3mm !important; }
@@ -452,18 +468,142 @@ a { color: inherit; }
   .rp-sw-done { background: #eceff1 !important; }
   .rp-sw-pending { background: #fff7e3 !important; }
   .rp-sw-today { border-top: 2.5px solid #000 !important; border-bottom: 2.5px solid #000 !important; }
-  .rp-table { min-width: 0 !important; width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 10pt; }
+  .rp-table { min-width: 0 !important; width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 9.5pt; }
   .rp-table thead { display: table-header-group; }
   .rp-table tr { break-inside: avoid; }
   .rp-table th, .rp-table td { border: 1px solid #000 !important; padding: 1.2mm 2mm !important; color: #000 !important; position: static !important; box-shadow: none !important; }
   .rp-table th { background: #d9dee3 !important; font-weight: 700; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .rp-table .rp-date { width: 25mm !important; }
-  .rp-table th.rp-th-tasks { width: 38% !important; }
+  .rp-table .rp-date { width: 40mm !important; }
+  .rp-table th.rp-th-tasks { width: 26% !important; }
   .rp-done > td { background: #eceff1 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .rp-pending > td { background: #fff7e3 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .rp-upcoming > td, .rp-missing > td, .rp-today > td { background: #fff !important; }
   .rp-today > td { border-top: 2.5px solid #000 !important; border-bottom: 2.5px solid #000 !important; }
-  .rp-state, .rp-span, .rp-muted, .rp-none, .rp-sub { color: #000 !important; }
+  .rp-state, .rp-span, .rp-muted, .rp-none, .rp-note { color: #000 !important; }
+  .rp-names { line-height: 1.5; }
   .rp-state { font-size: 8pt; }
   .rp-hit { background: none !important; font-weight: 700; text-decoration: underline; }
 }
+
+/* ======================================================================================
+   تصميم الهاتف (عرض ≤ 700px) — تخطيط مخصص للمس، لا تصغيرًا لواجهة الحاسوب.
+   هذه الكتلة داخل media query فقط: واجهة الحاسوب والطباعة لا تتأثران (عرض صفحة الطباعة أكبر من 700px).
+   المبادئ: أهداف لمس ≥ 46px، حقول بخط 16px (لا تكبير تلقائي في iOS)، عمود واحد، أزرار الإجراءات بعرض كامل،
+   الحوارات كأوراق سفلية، وتحويل الجداول إلى بطاقات مدمجة بدل تمرير أفقي.
+   ====================================================================================== */
+@media (max-width: 700px) {
+  /* ---------- عام ---------- */
+  .btn, .btn-small { min-height: 46px; padding: 8px 14px; border-radius: 10px; font-size: 1rem; }
+  .field input, .field select, .field textarea { min-height: 48px; font-size: 16px; border-radius: 10px; }
+  .field textarea { min-height: 84px; }
+  .field > span { font-size: .92rem; color: var(--muted); font-weight: 500; }
+  .view { padding: 12px 12px calc(92px + env(safe-area-inset-bottom)); }
+  .sheet { border-radius: 12px; margin-bottom: 14px; border-top-width: 3px; }
+  .sheet-head { padding: 12px 14px; gap: 10px; }
+  .sheet-head h2 { font-size: 1.08rem; }
+  .sheet-head > .btn-primary { flex: 1 1 100%; }                 /* زر الإضافة بعرض كامل تحت العنوان */
+  .topbar { padding: 5px 12px; min-height: 54px; }
+  .topbar h1 { font-size: 1.1rem; }
+  .topbar .btn-small { min-height: 44px; padding: 4px 14px; }
+  .check-inline { min-height: 48px; }
+  .toasts { bottom: calc(86px + env(safe-area-inset-bottom)); }
+  .nav a { min-height: 58px; border-radius: 10px; font-size: .74rem; gap: 2px; }
+  .nav a > span:first-child { font-size: 1.25rem; line-height: 1; }
+  .login-card { padding: 24px 18px; }
+
+  /* ---------- الحوارات كأوراق سفلية ---------- */
+  .dlg { width: 100%; max-width: none; margin: auto 0 0; max-height: 92vh; max-height: 92dvh; border-radius: 18px 18px 0 0; }
+  .dlg-body { padding: 18px 16px calc(14px + env(safe-area-inset-bottom)); }
+  .dlg-body h2 { font-size: 1.15rem; margin-bottom: 12px; }
+  .dlg-actions { position: sticky; bottom: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-top: 10px; padding: 10px 0 0; background: #fff; }
+  .dlg-actions .btn { width: 100%; }
+  .pick-list { max-height: 50vh; max-height: 50dvh; }
+  .pick-row { min-height: 60px; padding: 12px 14px; }
+  .pick-name { font-size: 1.05rem; }
+
+  /* ---------- برنامج الخدمات: شريط التنقل ---------- */
+  .day-toolbar { display: grid; gap: 10px; padding: 12px; margin-bottom: 10px; }
+  .day-toolbar .date-nav { display: grid; width: 100%; gap: 8px; align-items: center; grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr) minmax(0, 1fr); grid-template-areas: "prev date next" "info info today"; }
+  .day-toolbar [data-action="nav-prev"] { grid-area: prev; }
+  .day-toolbar #svc-date { grid-area: date; width: 100%; min-width: 0; min-height: 46px; text-align: center; font-size: 16px; }
+  .day-toolbar [data-action="nav-next"] { grid-area: next; }
+  .day-toolbar [data-action="nav-today"] { grid-area: today; }
+  .day-toolbar .day-info { grid-area: info; padding: 0; white-space: normal; font-size: .92rem; }
+  .day-toolbar > [data-action="open-week"] { width: 100%; }
+  .day-toolbar .date-nav .btn, .sheet-head .date-nav .btn { padding-inline: 4px; white-space: nowrap; font-size: .9rem; }
+  .day-strip { margin-inline: -12px; padding: 2px 12px 10px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+  .chip { min-width: 64px; min-height: 58px; scroll-snap-align: center; }
+
+  /* ---------- بطاقة اليوم ---------- */
+  .day-head { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 14px 12px; text-align: center; }
+  .day-head > .day-title, .day-head > .badge { grid-column: 1 / -1; justify-self: center; }
+  .day-title { font-size: 1.15rem; }
+  .day-head .btn { width: 100%; padding-inline: 6px; font-size: .92rem; }
+  .roles { grid-template-columns: 1fr; gap: 0; padding: 4px 12px 0; }
+  .slot, .slot-wide { display: grid; grid-template-columns: 6.2rem 1fr auto; align-items: center; gap: 4px 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .slot-wide { padding: 10px 12px 12px; border-bottom: 0; }
+  .slot-label { white-space: normal; font-size: .95rem; }
+  .slot-value { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; min-height: 46px; padding: 4px 12px; border: 0; border-radius: 10px; background: #f3f6f9; font-size: 1.02rem; }
+  .slot-value.slot-empty::before { content: "—"; color: #9aa6b2; }
+  .slot .btn { min-width: 78px; }
+  .slot-note { grid-column: 1 / -1; font-size: .8rem; }
+  .avail { grid-template-columns: 1fr; padding: 0 12px 10px; }
+  .avail-item { align-items: center; padding: 10px 0; }
+  .avail-busy { padding-inline: 8px; border-radius: 8px; }
+  .day-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px; }
+  .day-actions .btn { width: 100%; }
+
+  /* ---------- الأفراد: بطاقة لكل فرد بأزرار كبيرة ---------- */
+  /* صف مدمج: الاسم والحالة يمينًا، وزرّان كبيران يسارًا (ارتفاع 46px) */
+  .person { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name actions" "badge actions" "notes notes"; align-items: center; gap: 4px 10px; padding: 10px 14px; }
+  .person-name { grid-area: name; align-self: end; font-size: 1.06rem; }
+  .person .badge { grid-area: badge; justify-self: start; align-self: start; }
+  .person-notes { grid-area: notes; white-space: normal; font-size: .88rem; }
+  .person .row-actions { grid-area: actions; display: flex; gap: 8px; }
+  .person .row-actions .btn { min-width: 84px; }
+
+  /* ---------- التعيينات: بطاقة مدمجة لكل تعيين ---------- */
+  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 14px; }
+  .filters .field-inline { min-width: 0; }
+  .filters .field-inline:last-child { grid-column: 1 / -1; }
+  .sheet-head .date-nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; }
+  .sheet-head .date-nav input[type="date"] { grid-column: 1 / -1; order: -1; min-height: 48px; font-size: 16px; }
+
+  .tbl-wrap { overflow: visible; }
+  .tbl thead { display: none; }
+  .tbl tr { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .tbl td { display: block; min-width: 0; padding: 0; border: 0; }
+  .tbl td::before { content: attr(data-label); display: block; margin-bottom: 1px; font-size: .72rem; color: var(--muted); }
+  .tbl td[data-label="الفرد"], .tbl td[data-label="التعيين"], .tbl td[data-label="المهمة"] { font-weight: 700; font-size: 1.03rem; }
+  .tbl td[data-label="الفرد"]::before, .tbl td[data-label="التعيين"]::before, .tbl td[data-label="المهمة"]::before { display: none; }
+  .tbl td[data-label="الفرد"] { grid-column: 1 / 3; }
+  .tbl td[data-label="التعيين"], .tbl td[data-label="المهمة"] { grid-column: 3 / 5; text-align: end; }
+  .tbl td[data-label="من تاريخ"] { grid-column: 1 / 3; }
+  .tbl td[data-label="إلى تاريخ"] { grid-column: 3 / 5; }
+  #as-list .tbl td[data-label="من تاريخ"], #as-list .tbl td[data-label="إلى تاريخ"], #as-list .tbl td[data-label="المدة"], #as-list .tbl td[data-label="الحالة"] { grid-column: auto; font-size: .9rem; }
+  .tbl td.td-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 6px; }
+  .tbl td.td-actions::before { content: none; }
+  .tbl td.td-actions:only-child, .tbl td.td-actions .muted:only-child { grid-column: 1 / -1; }
+
+  /* ---------- الإعدادات ---------- */
+  #settings-logout { width: 100%; }
+
+  /* ---------- الإحصائيات: كشف الخدمات ---------- */
+  .rp-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 14px; }
+  .rp-form .field-inline { min-width: 0; }
+  .rp-apply, .rp-days, .rp-filters .rp-grow, .rp-filters #rp-reset { grid-column: 1 / -1; }
+  .rp-days { margin: 0; }
+  .rp-cols { padding: 12px 14px; }
+  .rp-chip span { min-height: 46px; padding-inline: 18px; }
+  .rp-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 12px 14px; }
+  .rp-actions .btn { padding-inline: 6px; font-size: .88rem; min-height: 50px; }
+  #rp-export-note { grid-column: 1 / -1; }
+  .rp-head { padding: 14px 12px 4px; }
+  .rp-title { font-size: 1.2rem; }
+  .rp-legend { justify-content: flex-start; gap: 6px 14px; margin: 8px 12px 10px; font-size: .8rem; }
+  .rp-table { min-width: calc(var(--rp-n, 5) * 86px); }
+  .rp-table th.rp-th-tasks { min-width: 170px; }
+  .rp-table th, .rp-table td { padding: 6px 6px; font-size: .8rem; }
+  .rp-state { font-size: .72rem; }
+}
+@media (max-width: 700px) { .rp-link { padding: 10px 0; margin-top: 0; } }

@@ -121,4 +121,38 @@ assert.equal(rep({days:mk(day("2026-10-10",{parmanoPersonId:"a"}),day("2026-10-1
 // فترة سنة كاملة تُبنى
 const yr=R.buildReport({people,assignments:[],days:{},from:"2026-01-01",to:"2026-12-31",today:TODAY}); assert.equal(yr.rows.length,365); assert.equal(yr.counts.done+yr.counts.pending,0);
 assert.deepEqual(yr.counts,{done:0,upcoming:80,today:1,pending:0,missing:284});   // 12/10 هو اليوم 285 من 365
+
+// ===== اختيار الأعمدة =====
+{ const rc=R.resolveColumns;
+  assert.deepEqual(rc(["date","parmano","gard","rest"]),{showDate:true,columns:["parmano","gard","rest"]});       // بلا مهام
+  assert.deepEqual(rc(["rest","date","parmano"]),{showDate:true,columns:["parmano","rest"]});                    // الترتيب المعتاد دائمًا
+  assert.deepEqual(rc(["tasks"]),{showDate:false,columns:["tasks"]});
+  assert.deepEqual(rc(["date"]),{showDate:true,columns:[]});
+  assert.deepEqual(rc([]),{showDate:true,columns:R.COLUMN_ORDER}); assert.deepEqual(rc(undefined),{showDate:true,columns:R.COLUMN_ORDER}); assert.deepEqual(rc(["x","y"]),{showDate:true,columns:R.COLUMN_ORDER});
+  assert.deepEqual(R.ALL_COLUMNS,["date","parmano","gard","rest","tasks"]);
+  assert.equal(R.COLUMN_CHOICES.date,"التاريخ"); assert.equal(R.COLUMN_CHOICES.tasks,"المهام"); }
+{ const cd=mk(day("2026-10-10",{status:"final",parmanoPersonId:"a",gardPersonId:"b",restPersonIds:["c","d"],otherTasks:[{personId:"fq",task:"حراسة"}]}));
+  const rr=(o)=>R.buildReport({people,assignments:[A(1,"b","إجازة","2026-10-10","2026-10-12")],days:cd,from:"2026-10-10",to:"2026-10-12",today:TODAY,...o});
+  let x=rr({columns:["date","parmano","gard","rest"]});
+  assert.deepEqual(x.columns,["parmano","gard","rest"]); assert.equal(x.showDate,true); assert.equal(x.shown,3); assert.equal(x.filtered,false);
+  assert.ok(x.rows[0].cells.tasks.length>0,"البيانات تبقى محسوبة لكن العمود غير معروض");        // المخفي لا يؤثر في غيره
+  assert.deepEqual(x.rows[0].cells.rest.map(e=>e.name),["جمال","داود"]);
+  // البحث لا يطابق أسماء أعمدة مخفية
+  assert.equal(rr({columns:["date","parmano","gard","rest"],search:"فقير"}).shown,0);                       // فقير في المهام المخفية
+  assert.equal(rr({columns:["date","tasks"],search:"فقير"}).shown,1);
+  assert.equal(rr({columns:["date","rest"],search:"جمال"}).filtered,true);
+  // columns تغلب type
+  assert.deepEqual(rr({columns:["date","gard"],type:"rest"}).columns,["gard"]);
+  assert.equal(rr({columns:["parmano"]}).showDate,false);
+  // الطريقة القديمة ما زالت تعمل
+  const t=rr({type:"rest"}); assert.deepEqual(t.columns,["rest"]); assert.equal(t.showDate,true); assert.equal(t.filtered,true); }
+// ===== صياغة الاسم والفاصل =====
+assert.equal(R.SEPARATOR," + ");
+assert.equal(R.nameText({name:"عقون"}),"عقون");
+assert.equal(R.nameText({name:"فقير",driver:true}),"فقير 🚗");
+assert.equal(R.nameText({name:"قديم",inactive:true}),"قديم (غير نشط)");
+assert.equal(R.nameText({name:"بن ناصر",note:"بديل"}),"بن ناصر (بديل)");
+assert.equal(R.nameText({name:"فقير",driver:true,note:"بديل"}),"فقير 🚗 (بديل)");
+assert.equal(["عقون","شيباني","سيش"].join(R.SEPARATOR),"عقون + شيباني + سيش");
+
 console.log("كشف الخدمات اليومية: كل الاختبارات نجحت");

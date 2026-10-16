@@ -11,6 +11,9 @@ export const MAX_DAYS = 366; // حد أقصى لطول الفترة حمايةً
 // أنواع الخدمة (أعمدة الكشف) وخيارات التصفية
 export const COLUMNS = Object.freeze({ parmano: "الخفارة", gard: "الحراسة", rest: "الراحة", tasks: "المهام" });
 export const COLUMN_ORDER = ["parmano", "gard", "rest", "tasks"];
+// كل أعمدة الكشف بترتيبها المعتاد (التاريخ أولًا). يختار المستخدم منها ما يظهر في الكشف والطباعة والتصدير.
+export const ALL_COLUMNS = ["date", ...COLUMN_ORDER];
+export const COLUMN_CHOICES = Object.freeze({ date: "التاريخ", ...COLUMNS });
 export const TYPE_OPTIONS = [{ id: "all", label: "جميع الخدمات" }, ...COLUMN_ORDER.map((id) => ({ id, label: COLUMNS[id] }))];
 
 // حالات اليوم (للتمييز البصري). النص يكفي وحده للتمييز (طباعة أبيض وأسود)، واللون مساعد فقط.
@@ -76,16 +79,32 @@ function assignmentDetail(a) {
     : { detail: a.type, span: null };
 }
 
+// يحوّل اختيار الأعمدة إلى { showDate, columns } بالترتيب المعتاد دائمًا (مهما كان ترتيب المدخل).
+// columns: مصفوفة من ALL_COLUMNS. فارغة/غير صالحة = كل الأعمدة. محتوى عمود مخفي لا يؤثر في بقية الأعمدة.
+export function resolveColumns(columns) {
+  const wanted = Array.isArray(columns) ? ALL_COLUMNS.filter((c) => columns.includes(c)) : [];
+  const chosen = wanted.length ? wanted : ALL_COLUMNS;
+  return { showDate: chosen.includes("date"), columns: COLUMN_ORDER.filter((c) => chosen.includes(c)) };
+}
+
+// نص الفرد (لا يختصر الاسم): الاسم + 🚗 للسائق + (غير نشط) + (بديل). يُستعمل في الصفحة والطباعة وWord بنفس الصياغة.
+export function nameText(e) {
+  return `${e.name}${e.driver ? " 🚗" : ""}${e.inactive ? " (غير نشط)" : ""}${e.note ? ` (${e.note})` : ""}`;
+}
+export const SEPARATOR = " + "; // الفاصل بين أسماء الخانة الواحدة: «عقون + شيباني + سيش»
+
 // يبني الكشف. today: تاريخ اليوم الحالي (YYYY-MM-DD) يُمرَّر من المستدعي (لسهولة الاختبار).
-// search: نص بحث عن اسم فرد. type: 'all' أو أحد COLUMN_ORDER.
-// المخرجات تشمل كل أيام الفترة (ولو لم تُعدّ)، بعد التصفية فقط إن طُلبت.
-export function buildReport({ people, assignments, days, from, to, today, search = "", type = "all" }) {
+// search: نص بحث عن اسم فرد. columns: أعمدة الكشف المختارة (انظر resolveColumns) وتغلب type إن مُرِّرت.
+// type: 'all' أو أحد COLUMN_ORDER (طريقة قديمة سريعة: التاريخ + عمود واحد).
+// المخرجات تشمل كل أيام الفترة (ولو لم تُعدّ)، بعد البحث فقط إن طُلب.
+export function buildReport({ people, assignments, days, from, to, today, search = "", type = "all", columns: chosenColumns }) {
   const check = validatePeriod(from, to);
   if (!check.ok) throw new Error(check.message);
 
   const byId = new Map(people.map((p) => [p.id, p]));
   const q = normalizeName(search);
-  const columns = type === "all" || !COLUMNS[type] ? COLUMN_ORDER : [type];
+  const byColumns = Array.isArray(chosenColumns);
+  const { showDate, columns } = byColumns ? resolveColumns(chosenColumns) : { showDate: true, columns: type === "all" || !COLUMNS[type] ? COLUMN_ORDER : [type] };
   const entry = (personId, extra = {}) => {
     const p = byId.get(personId);
     return {
@@ -143,8 +162,9 @@ export function buildReport({ people, assignments, days, from, to, today, search
     from, to, today,
     daysCount: check.days,   // أيام الفترة كلها
     shown: rows.length,      // المعروضة بعد البحث
-    columns, type, search: search.trim(),
-    filtered: !!q || (type !== "all" && !!COLUMNS[type]),
+    columns, showDate, type, search: search.trim(),
+    // اختيار الأعمدة لا يُعدّ تصفية للأيام (كل الأيام تبقى)؛ التصفية = البحث، أو النوع بالطريقة القديمة
+    filtered: !!q || (!byColumns && type !== "all" && !!COLUMNS[type]),
     rows, counts,
   };
 }

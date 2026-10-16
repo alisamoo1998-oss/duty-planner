@@ -41,7 +41,8 @@ def apply(pg):
     pg.click("#rp-apply"); pg.wait_for_function("!document.getElementById('rp-apply').disabled")
 def rows(pg): return pg.locator("#rp-table tbody tr.rp-row")
 def row(pg, n): return pg.locator(f"#rp-table tbody tr[data-date='{iso(n)}']")
-def lines(pg, n, col): return [l.strip() for l in row(pg, n).locator(f"td.rp-c-{col} .rp-line").all_inner_texts()]
+def cell(pg, n, col): return row(pg, n).locator(f"td.rp-c-{col}").inner_text().strip()          # نص الخلية كاملًا: «عقون + شيباني + سيش»
+def nbsp(t): return t.replace("\xa0", " ")
 def kind(pg, n): return re.search(r"rp-(done|pending|missing|upcoming|today)", row(pg, n).get_attribute("class")).group(1)
 def ptext(path, n): return unicodedata.normalize("NFKC", subprocess.run(["pdftotext", "-f", str(n), "-l", str(n), "-layout", path, "-"], capture_output=True, text=True).stdout)
 
@@ -73,7 +74,8 @@ with sync_playwright() as p:
     first = T.replace(day=1); last = (T.replace(day=28) + timedelta(days=4)); last = last - timedelta(days=last.day)
     check("الفترة الافتراضية = الشهر الحالي وعدد أيامه", pg.input_value("#rp-from") == first.isoformat() and pg.input_value("#rp-to") == last.isoformat() and str((last - first).days + 1) in pg.inner_text("#rp-days"), pg.inner_text("#rp-days"))
     check("واجهة الفترة: بداية، نهاية، «عرض الكشف»، البحث، نوع الخدمة، إعادة العرض", all(pg.locator(s).count() == 1 for s in ("#rp-from", "#rp-to", "#rp-apply", "#rp-search", "#rp-type", "#rp-reset")) and pg.inner_text("#rp-apply").strip() == "عرض الكشف")
-    check("خيارات النوع: جميع الخدمات (الافتراضي) + الأربعة", pg.locator("#rp-type option").all_inner_texts() == ["جميع الخدمات", "الخفارة", "الحراسة", "الراحة", "المهام"] and pg.input_value("#rp-type") == "all")
+    check("خيارات النوع: جميع الخدمات (الافتراضي) + الأربعة", pg.locator("#rp-type option").all_inner_texts() == ["جميع الخدمات", "الخفارة", "الحراسة", "الراحة", "المهام", "أعمدة مخصّصة"] and pg.input_value("#rp-type") == "all")
+    check("خيارات الأعمدة: خمس خانات بالترتيب المعتاد وكلها مفعّلة افتراضيًا", pg.locator("input[data-col]").evaluate_all("els=>els.map(e=>e.dataset.col+':'+e.checked)") == ["date:true", "parmano:true", "gard:true", "rest:true", "tasks:true"] and pg.locator(".rp-chip span").all_inner_texts() == ["التاريخ", "الخفارة", "الحراسة", "الراحة", "المهام"])
 
     # ===== 2) فترة تشمل ماضيًا وقادمًا =====
     period(pg, iso(-4), iso(4)); check("عدد الأيام المشمولة يتحدّث فورًا (9 أيام)", "9 أيام" in pg.inner_text("#rp-days"))
@@ -87,7 +89,7 @@ with sync_playwright() as p:
     check("نص «منفذ» لليومين المعتمدين الماضيين فقط", st(-4) == "✓ منفذ" and st(-3) == "✓ منفذ" and "منفذ" not in " ".join(st(i) for i in range(-2, 5)))
     check("يوم قادم معتمد مسبقًا يُوصف «قادم (معتمد)» لا منفذ", st(1) == "قادم (معتمد)" and st(2) == "قادم (مسودة)" and st(3) == "قادم (غير مُعدّ)")
     check("اليوم الحالي موسوم بحالته، والماضي غير المحسوم والمفقود بتسمية صريحة", st(0) == "اليوم (مسودة)" and st(-2) == "مسودة غير محسومة" and st(-1) == "غير مُعدّ")
-    check("اسم يوم الأسبوع بجانب التاريخ", row(pg, -4).locator(".rp-wd").inner_text().strip() in ("الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت") and row(pg, -4).locator(".rp-d").inner_text().strip() == fmt(iso(-4)))
+    check("اسم اليوم والتاريخ في سطر واحد داخل عمود التاريخ", row(pg, -4).locator(".rp-wd").inner_text().strip() in ("الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت") and row(pg, -4).locator(".rp-d").inner_text().strip() == fmt(iso(-4)) and re.fullmatch(r"\S+ " + re.escape(fmt(iso(-4))), row(pg, -4).locator(".rp-dl").inner_text().strip()) is not None and row(pg, -4).locator(".rp-dl").evaluate("e=>e.getBoundingClientRect().height") < 30, row(pg, -4).locator(".rp-dl").inner_text())
     check("وسيلة الإيضاح: 5 حالات بنصوصها", pg.locator(".rp-legend li").count() == 5 and all(x in pg.inner_text(".rp-legend") for x in ("منفذ", "قادم", "اليوم الحالي", "مسودة غير محسومة", "غير مُعدّ")))
 
     pg.screenshot(path=f"{OUT}/rp_desktop.png", full_page=True)
@@ -98,16 +100,18 @@ with sync_playwright() as p:
     check("لا ألوان مشبعة: كل الخلفيات قريبة من الأبيض", all(sum(map(int, re.findall(r"\d+", bg(i))[:3])) > 700 for i in range(-4, 5)))
 
     # ===== 4) محتوى الخلايا =====
-    check("أسماء الخفارة والحراسة والراحة في أعمدتها وكل اسم في سطر مستقل", lines(pg, -4, "parmano") == ["بن ناصر"] and lines(pg, -4, "gard") == ["عقون"] and lines(pg, -4, "rest") == ["بوثلجة", "حميدي", "دبزة"], str(lines(pg, -4, "rest")))
-    check("المهمة اليدوية باسم الفرد والمهمة، والسائق 🚗", lines(pg, -4, "tasks") == ["مرزوقي 🚗 — حراسة المخزن"], str(lines(pg, -4, "tasks")))
-    check("لا خلط: الخفير ليس في عمود الحراسة والعكس", all("بن ناصر" not in l for l in lines(pg, -4, "gard")) and all("عقون" not in l for l in lines(pg, -4, "parmano")))
-    check("البديل بسطر مستقل وبنوعه (اليوم الثاني)", lines(pg, -3, "parmano") == ["فقير 🚗", "بديل: بن ناصر"] and lines(pg, -3, "gard") == ["خدام 🚗", "بديل: عقون"], str(lines(pg, -3, "parmano")))
+    check("أسماء الخانة في سطر أفقي واحد مفصولة بـ + (بلا اختصار ولا عدّاد)", cell(pg, -4, "parmano") == "بن ناصر" and cell(pg, -4, "gard") == "عقون" and cell(pg, -4, "rest") == "بوثلجة + حميدي + دبزة", cell(pg, -4, "rest"))
+    check("المهمة اليدوية باسم الفرد والمهمة، والسائق 🚗", cell(pg, -4, "tasks") == "مرزوقي 🚗 — حراسة المخزن", cell(pg, -4, "tasks"))
+    check("لا خلط: الخفير ليس في عمود الحراسة والعكس", "بن ناصر" not in cell(pg, -4, "gard") and "عقون" not in cell(pg, -4, "parmano"))
+    check("البديل في خانة خدمته بصيغة «اسم (بديل)» ضمن السطر نفسه", cell(pg, -3, "parmano") == "فقير 🚗 + بن ناصر (بديل)" and cell(pg, -3, "gard") == "خدام 🚗 + عقون (بديل)", cell(pg, -3, "parmano"))
     check("إذا لم توجد خدمة تظهر «لا توجد»", row(pg, -1).locator("td.rp-c-parmano").inner_text().strip() == "لا توجد" and row(pg, 3).locator("td.rp-c-rest").inner_text().strip() == "لا توجد" and row(pg, -4).locator("td.rp-c-tasks .rp-none").count() == 0)
-    check("أربعة أفراد راحة: كلهم ظاهرون بلا قصّ، كل اسم في سطر", lines(pg, 2, "rest") == ["بوثلجة", "حميدي", "دبزة", "شيتور"])
-    check("التكليفات تظهر في المهام بنوعها ومدتها (مائلة) حتى في يوم غير مُعدّ", any("غربي — إجازة" in l for l in lines(pg, -1, "tasks")) and "من " + fmt(iso(-1)) + " إلى " + fmt(iso(1)) in row(pg, -1).locator("td.rp-c-tasks").inner_text() and row(pg, -1).locator("td.rp-c-tasks .rp-assignment").count() >= 1)
+    check("أربعة أفراد راحة: كلهم ظاهرون بلا قصّ، والالتفاف (إن ضاق العمود) بين الأسماء فقط لا داخل اسم", cell(pg, 2, "rest") == "بوثلجة + حميدي + دبزة + شيتور" and all(h < 30 for h in row(pg, 2).locator("td.rp-c-rest .rp-n").evaluate_all("els=>els.map(e=>e.getBoundingClientRect().height)")))
+    check("التكليفات تظهر في المهام بنوعها ومدتها (مائلة) حتى في يوم غير مُعدّ", "غربي — إجازة" in cell(pg, -1, "tasks") and "من " + fmt(iso(-1)) + " إلى " + fmt(iso(1)) in row(pg, -1).locator("td.rp-c-tasks").inner_text() and row(pg, -1).locator("td.rp-c-tasks .rp-assignment").count() >= 1)
     check("المهمة المستمرة تُعرض «بلا تاريخ نهاية» دون تاريخ وهمي", "بلا تاريخ نهاية" in row(pg, 3).locator("td.rp-c-tasks").inner_text() and "9999" not in pg.inner_text("#view"))
     check("الفرد المعطّل يُعلَّم ولا يُحذف اسمه", "(غير نشط)" in row(pg, 4).locator("td.rp-c-rest").inner_text() and "شيباني" in row(pg, 4).locator("td.rp-c-rest").inner_text())
-    check("لا أسماء افتراضية: كل الأسماء المعروضة من قائمة الأفراد", set(re.sub(r"( 🚗| \(غير نشط\))", "", l.replace("بديل: ", "")).split(" — ")[0] for l in pg.locator("#rp-table .rp-line").all_inner_texts() for l in [l.split("\n")[0]]) <= {v["name"] for k, v in store(pg).items() if k.startswith("people/")})
+    toks = [re.sub(r"( \+)$", "", t.split("\n")[0].strip()) for t in pg.locator("#rp-table .rp-n").all_inner_texts()]
+    toks = [re.sub(r"( 🚗| \(غير نشط\)| \(بديل\))", "", t).split(" — ")[0] for t in toks]
+    check("لا أسماء افتراضية: كل الأسماء المعروضة من قائمة الأفراد", toks and set(toks) <= {v["name"] for k, v in store(pg).items() if k.startswith("people/")}, str(set(toks))[:120])
     check("سطر التعداد: 9 أيام بالحالات (لا بطاقات)", "9 أيام" in pg.inner_text(".rp-counts") and "2 منفذ" in pg.inner_text(".rp-counts") and "4 قادم" in pg.inner_text(".rp-counts") and "1 اليوم الحالي" in pg.inner_text(".rp-counts"), pg.inner_text(".rp-counts"))
 
     # ===== 5) التحقق من الفترة =====
@@ -133,6 +137,57 @@ with sync_playwright() as p:
     pg.click("#rp-reset")
     check("إعادة العرض الكامل: 5 أعمدة و9 أيام وبحث فارغ ونوع «جميع الخدمات»", pg.locator("#rp-table thead th").count() == 5 and rows(pg).count() == 9 and pg.input_value("#rp-search") == "" and pg.input_value("#rp-type") == "all" and pg.locator(".rp-filter").count() == 0)
 
+    # ===== 6ب) اختيار الأعمدة قبل الاستخراج =====
+    chip = lambda c: pg.locator(f"label.rp-chip:has(input[data-col={c}])")
+    heads = lambda: pg.locator("#rp-table thead th").all_inner_texts()
+    kinds_before = [kind(pg, i) for i in range(-4, 5)]
+    chip("tasks").click()
+    check("إخفاء المهام: التاريخ والخفارة والحراسة والراحة بترتيبها المعتاد فقط", heads() == ["التاريخ واليوم", "الخفارة", "الحراسة", "الراحة"] and pg.locator("td.rp-c-tasks, th.rp-th-tasks").count() == 0 and all(r.locator("td").count() == 4 for r in rows(pg).all()))
+    check("العمود المخفي لا يظهر محتواه ولا يؤثر في غيره (الأيام والحالات والأسماء كما هي)", "حراسة المخزن" not in pg.inner_text("#rp-table") and "إجازة" not in pg.inner_text("#rp-table") and rows(pg).count() == 9 and [kind(pg, i) for i in range(-4, 5)] == kinds_before and cell(pg, -4, "rest") == "بوثلجة + حميدي + دبزة")
+    wd = pg.evaluate("(()=>{const t=document.querySelector('#rp-table');return [t.getBoundingClientRect().width,[...t.querySelectorAll('thead th')].reduce((a,th)=>a+th.getBoundingClientRect().width,0)]})()")
+    check("الأعمدة المعروضة تملأ عرض الجدول دون مساحة فارغة لعمود المهام", abs(wd[0] - wd[1]) < 2, str(wd))
+    check("القائمة السريعة تعرض «أعمدة مخصّصة»", pg.input_value("#rp-type") == "custom")
+    check("سطر التعداد وأيام الفترة لم تتغير بإخفاء عمود", "9 أيام" in pg.inner_text(".rp-counts") and pg.locator(".rp-filter").count() == 0)
+    chip("date").click()
+    check("إخفاء التاريخ أيضًا: ثلاثة أعمدة خدمة فقط وتبقى الصفوف التسعة", heads() == ["الخفارة", "الحراسة", "الراحة"] and pg.locator(".rp-date").count() == 0 and rows(pg).count() == 9)
+    chip("parmano").click(); chip("gard").click()
+    check("عمود واحد (الراحة) يظهر وحده", heads() == ["الراحة"])
+    chip("rest").click()
+    check("لا يمكن إلغاء كل الأعمدة: يبقى عمود ويظهر تنبيه", heads() == ["الراحة"] and pg.locator("input[data-col=rest]").is_checked() and pg.locator(".toast:has-text('عمود واحد على الأقل')").count() >= 1)
+    # الاختصار السريع ↔ الخانات
+    pg.select_option("#rp-type", "gard")
+    check("«نوع الخدمة» اختصار: التاريخ + الحراسة فقط", pg.locator("input[data-col]").evaluate_all("els=>els.map(e=>e.checked)") == [True, False, True, False, False] and heads() == ["التاريخ واليوم", "الحراسة"])
+    pg.select_option("#rp-type", "all")
+    check("«جميع الخدمات» يعيد الأعمدة الخمسة", len(heads()) == 5 and pg.locator("input[data-col]").evaluate_all("els=>els.every(e=>e.checked)"))
+    # تحديد التاريخ + الخفارة + الحراسة + الراحة (دون المهام) للطباعة وWord
+    chip("tasks").click()
+    pg.evaluate("()=>{window.__p={n:0};window.print=()=>{window.__p.n++}}")
+    pg.set_viewport_size({"width": 1123, "height": 794}); pg.emulate_media(media="print")
+    check("الطباعة بلا المهام: أربعة أعمدة والنص المخفي غير موجود", pg.locator("#rp-table thead th").count() == 4 and "حراسة المخزن" not in pg.inner_text("#rp-report") and pg.locator(".rp-c-tasks").count() == 0)
+    wd = pg.evaluate("(()=>{const t=document.querySelector('#rp-table');return [t.getBoundingClientRect().width,[...t.querySelectorAll('thead th')].reduce((a,th)=>a+th.getBoundingClientRect().width,0)]})()")
+    check("الطباعة: لا مساحة فارغة (الأعمدة تملأ الجدول)", abs(wd[0] - wd[1]) < 2, str(wd))
+    check("الطباعة بلا المهام: أسماء الراحة في سطر واحد", len(set(row(pg, 2).locator("td.rp-c-rest .rp-n").evaluate_all("els=>els.map(e=>e.offsetTop)"))) == 1)
+    fh = f"{OUT}/rp_nomtasks.pdf"; pg.pdf(path=fh, prefer_css_page_size=True, print_background=False)
+    th_ = ptext(fh, 1)
+    check("PDF بلا المهام: A4 أفقي وكل التواريخ", abs(float(PdfReader(fh).pages[0].mediabox[2]) - 841.9) < 2 and all(fmt(iso(i)) in "".join(ptext(fh, k) for k in range(1, len(PdfReader(fh).pages) + 1)) for i in range(-4, 5)), str(len(PdfReader(fh).pages)))
+    subprocess.run(["pdftoppm", "-r", "70", "-gray", "-png", "-f", "1", "-l", "1", fh, f"{OUT}/rp_nomtasks"], check=True)
+    pg.emulate_media(media="screen"); pg.set_viewport_size({"width": 1280, "height": 900})
+    with pg.expect_download() as dl: pg.click("[data-action=export-word]")
+    dl.value.save_as(f"{OUT}/rp_notasks.docx"); dn = pydocx.Document(f"{OUT}/rp_notasks.docx"); zn = zipfile.ZipFile(f"{OUT}/rp_notasks.docx"); xn = zn.read("word/document.xml").decode("utf8")
+    check("Word بلا المهام: أربعة أعمدة (التاريخ + 3) والأيام التسعة", len(dn.tables[1].columns) == 4 and len(dn.tables[1].rows) == 10 and [c.text for c in dn.tables[1].rows[0].cells] == ["التاريخ واليوم", "الخفارة", "الحراسة", "الراحة"])
+    check("Word بلا المهام: لا نص مهمة ولا تكليف في أي مكان من الملف", all(x not in xn for x in ("حراسة المخزن", "إجازة", "المهام</w:t>")) or xn.count("المهام") == 0 and "حراسة المخزن" not in xn)
+    grid = [int(g) for g in re.findall(r'<w:gridCol w:w="(\d+)"', xn)]
+    check("Word: عرض الأعمدة يملأ الصفحة بلا فراغ (التاريخ 2300 والبقية بالتساوي)", grid[5:] == [2300, 4266, 4266, 4266] and sum(grid[5:]) <= 15100 and sum(grid[5:]) >= 15098, str(grid))
+    chip("date").click()
+    with pg.expect_download() as dl: pg.click("[data-action=export-word]")
+    dl.value.save_as(f"{OUT}/rp_nodate.docx"); dd_ = pydocx.Document(f"{OUT}/rp_nodate.docx"); xd = zipfile.ZipFile(f"{OUT}/rp_nodate.docx").read("word/document.xml").decode("utf8")
+    check("Word بلا التاريخ والمهام: ثلاثة أعمدة بعرض متساوٍ يملأ الصفحة", len(dd_.tables[1].columns) == 3 and [c.text for c in dd_.tables[1].rows[0].cells] == ["الخفارة", "الحراسة", "الراحة"] and [int(g) for g in re.findall(r'<w:gridCol w:w="(\d+)"', xd)][5:] == [5033, 5033, 5033])
+    subprocess.run(["soffice", "--headless", "--convert-to", "pdf", "--outdir", f"{OUT}/lo", f"{OUT}/rp_notasks.docx"], capture_output=True, timeout=150)
+    subprocess.run(["pdftoppm", "-r", "70", "-png", "-f", "1", "-l", "1", f"{OUT}/lo/rp_notasks.pdf", f"{OUT}/rp_notasks_docx"], check=True)
+    check("LibreOffice يفتح ملف Word بلا المهام (صفحة أفقية)", float(PdfReader(f"{OUT}/lo/rp_notasks.pdf").pages[0].mediabox[2]) > float(PdfReader(f"{OUT}/lo/rp_notasks.pdf").pages[0].mediabox[3]))
+    pg.click("#rp-reset")
+    check("إعادة العرض الكامل تعيد كل الأعمدة الخمسة", len(heads()) == 5 and pg.input_value("#rp-type") == "all" and pg.locator("input[data-col]").evaluate_all("els=>els.every(e=>e.checked)"))
+
     # ===== 7) الوصول إلى التعديل الحالي دون أي كتابة =====
     check("رابط «فتح اليوم» لكل يوم يشير إلى صفحة الخدمات الحالية", all(r.locator("a.rp-link").get_attribute("href") == f"#/services/{r.get_attribute('data-date')}" for r in rows(pg).all()))
     check("الكشف للقراءة فقط: لا نقر على خلية يكتب شيئًا", (row(pg, 2).locator("td.rp-c-rest").click(), raw(pg) == base_raw)[1])
@@ -148,20 +203,22 @@ with sync_playwright() as p:
     check("«طباعة الكشف» يفتح نافذة الطباعة مرة واحدة بعنوان يحمل الفترة ثم يُستعاد", pg.evaluate("window.__p.n") == 1 and f"{iso(-4)} إلى {iso(4)}" in pg.evaluate("window.__p.titles[0]") and pg.title() == t0)
     pg.click("[data-action=save-pdf]")
     check("«حفظ بصيغة PDF» يمر عبر نافذة الطباعة مع إرشاد «حفظ كـ PDF»", pg.evaluate("window.__p.n") == 2 and pg.locator(".toast:has-text('حفظ كـ PDF')").count() >= 1)
-    pg.set_viewport_size({"width": 794, "height": 1123}); pg.emulate_media(media="print")
+    pg.set_viewport_size({"width": 1123, "height": 794}); pg.emulate_media(media="print")
     vis = lambda s: pg.is_visible(s)
     check("في الطباعة: الأدوات والتنقل والروابط مخفية والكشف ظاهر", not any(vis(s) for s in (".rp-controls", ".side", ".topbar", ".toasts")) and vis("#rp-table") and vis(".rp-legend") and pg.locator(".rp-link").first.is_hidden())
     check("في الطباعة: جدول حقيقي بخمسة أعمدة ورأس مكرر وكل الأيام التسعة", pg.evaluate("[getComputedStyle(document.querySelector('#rp-table')).display,getComputedStyle(document.querySelector('#rp-table thead')).display]") == ["table", "table-header-group"] and rows(pg).count() == 9 and pg.locator("#rp-table thead th").count() == 5)
     check("منع انقسام الصف بين صفحتين", pg.evaluate("getComputedStyle(document.querySelector('#rp-table tbody tr')).breakInside") == "avoid")
     check("العنوان والفترة وتاريخ الإعداد والوسيلة في الطباعة", all(x in pg.inner_text("#rp-report") for x in ("كشف الخدمات اليومية", f"من {fmt(iso(-4))} إلى {fmt(iso(4))}", "تاريخ إعداد التقرير: " + fmt(T.isoformat()), "منفذ — يوم مضى")))
-    colors = pg.evaluate("""()=>[...document.querySelectorAll('#rp-report .rp-line, #rp-report .rp-d, #rp-report .rp-state, #rp-report th')].filter(e=>e.getClientRects().length).map(e=>getComputedStyle(e).color)""")
+    colors = pg.evaluate("""()=>[...document.querySelectorAll('#rp-report .rp-n, #rp-report .rp-nm, #rp-report .rp-d, #rp-report .rp-wd, #rp-report .rp-state, #rp-report th')].filter(e=>e.getClientRects().length).map(e=>getComputedStyle(e).color)""")
     check("الطباعة بالأبيض والأسود: كل النصوص سوداء", colors and all(c == "rgb(0, 0, 0)" for c in colors), str(set(colors)))
     bgp = lambda n: row(pg, n).locator("td.rp-cell").first.evaluate("e=>getComputedStyle(e).backgroundColor")
     check("المنفذ رمادي فاتح جدًا، والقادم أبيض، واليوم بحدود سميكة سوداء", bgp(-4) == "rgb(236, 239, 241)" and bgp(1) == "rgb(255, 255, 255)" and float(row(pg, 0).locator("td").first.evaluate("e=>getComputedStyle(e).borderTopWidth").replace("px", "")) >= 2 and float(row(pg, 1).locator("td").first.evaluate("e=>getComputedStyle(e).borderTopWidth").replace("px", "")) <= 1 and row(pg, 0).locator("td").first.evaluate("e=>getComputedStyle(e).borderTopColor") == "rgb(0, 0, 0)", f"{bgp(-4)} {bgp(1)}")
     check("العمود الأول غير ثابت في الطباعة (تأثير الهاتف مُلغى)", pg.evaluate("getComputedStyle(document.querySelector('#rp-table td')).position") == "static")
     f1 = f"{OUT}/rp_report.pdf"; pg.pdf(path=f1, prefer_css_page_size=True, print_background=False)
     rd = PdfReader(f1); t1 = ptext(f1, 1)
-    check("PDF: A4 وصفحة واحدة لتسعة أيام", len(rd.pages) == 1 and abs(float(rd.pages[0].mediabox[2]) - 595.3) < 2, str(len(rd.pages)))
+    check("PDF: A4 أفقي (الصفحة المسمّاة للكشف) وتسعة أيام في صفحتين على الأكثر", len(rd.pages) <= 2 and abs(float(rd.pages[0].mediabox[2]) - 841.9) < 2 and abs(float(rd.pages[0].mediabox[3]) - 595.3) < 2, f"{len(rd.pages)} {rd.pages[0].mediabox}")
+    check("في الطباعة: أسماء الراحة الأربعة في سطر واحد (A4 أفقي)", len(set(row(pg, 2).locator("td.rp-c-rest .rp-n").evaluate_all("els=>els.map(e=>e.offsetTop)"))) == 1)
+    check("في الطباعة: اسم اليوم والتاريخ في سطر واحد", row(pg, -4).locator(".rp-dl").evaluate("e=>e.getBoundingClientRect().height") < 22)
     check("PDF: كل تواريخ الفترة موجودة", all(fmt(iso(i)) in t1 for i in range(-4, 5)))
     check("PDF: لا عناصر تطبيق (أزرار/تنقل)", not any(x in t1 for x in ("عرض الكشف", "Duty Planner", "فتح اليوم", "me@test.com")))
     subprocess.run(["pdftoppm", "-r", "75", "-gray", "-png", f1, f"{OUT}/rp_report"], check=True)
@@ -173,7 +230,7 @@ with sync_playwright() as p:
     # ===== 9) فترة طويلة: كل الأيام في الطباعة (ليس الصفحة الأولى فقط) =====
     period(pg, iso(-30), iso(29)); apply(pg)
     check("فترة 60 يومًا: 60 صفًا", rows(pg).count() == 60 and "60 يومًا" in pg.inner_text("#rp-days"))
-    pg.emulate_media(media="print"); pg.set_viewport_size({"width": 794, "height": 1123})
+    pg.emulate_media(media="print"); pg.set_viewport_size({"width": 1123, "height": 794})
     f2 = f"{OUT}/rp_long.pdf"; pg.pdf(path=f2, prefer_css_page_size=True, print_background=False); n2 = len(PdfReader(f2).pages)
     alltxt = "\n".join(ptext(f2, i) for i in range(1, n2 + 1))
     check("PDF الطويل: صفحات متعددة", n2 >= 2, str(n2))
@@ -195,14 +252,16 @@ with sync_playwright() as p:
     doc = pydocx.Document(path); tbl = doc.tables[1]
     check("python-docx يفتح الملف: جدول الكشف بعشرة صفوف (رأس + 9 أيام) وخمسة أعمدة", len(tbl.rows) == 10 and len(tbl.columns) == 5)
     check("رأس الجدول", [c.text for c in tbl.rows[0].cells] == ["التاريخ واليوم", "الخفارة", "الحراسة", "الراحة", "المهام"])
-    check("كل أيام الفترة بالترتيب", [tbl.rows[i + 1].cells[0].text.split("\n")[0] for i in range(9)] == [fmt(iso(i)) for i in range(-4, 5)])
-    check("الأسماء في خلاياها وكل اسم في فقرة مستقلة", [c.text for c in tbl.rows[1].cells][1:4] == ["بن ناصر", "عقون", "بوثلجة\nحميدي\nدبزة"] and "مرزوقي 🚗 — حراسة المخزن" in tbl.rows[1].cells[4].text and "لا توجد" in tbl.rows[4].cells[1].text)
-    check("البديل بنوعه، وغير النشط معلَّم", "بديل: بن ناصر" in tbl.rows[2].cells[1].text and "شيباني (غير نشط)" in tbl.rows[9].cells[3].text)
+    firstp = [nbsp(tbl.rows[i + 1].cells[0].text.split("\n")[0]) for i in range(9)]
+    check("كل أيام الفترة بالترتيب، واسم اليوم والتاريخ في سطر واحد", [f.split(" ")[-1] for f in firstp] == [fmt(iso(i)) for i in range(-4, 5)] and all(len(f.split(" ")) == 2 for f in firstp), str(firstp[:2]))
+    check("الأسماء في الخلية فقرة واحدة مفصولة بـ +", [nbsp(c.text) for c in tbl.rows[1].cells][1:4] == ["بن ناصر", "عقون", "بوثلجة + حميدي + دبزة"] and "مرزوقي 🚗 — حراسة المخزن" in nbsp(tbl.rows[1].cells[4].text) and "لا توجد" in tbl.rows[4].cells[1].text and all(len(c.paragraphs) == 1 for c in tbl.rows[1].cells[1:4]))
+    check("البديل بصيغة «اسم (بديل)» في السطر نفسه، وغير النشط معلَّم", nbsp(tbl.rows[2].cells[1].text) == "فقير 🚗 + بن ناصر (بديل)" and "شيباني (غير نشط)" in nbsp(tbl.rows[9].cells[3].text))
     check("حالات الأيام في الملف (منفذ/قادم/اليوم/غير محسوم/غير مُعدّ)", "✓ منفذ" in tbl.rows[1].cells[0].text and "مسودة غير محسومة" in tbl.rows[3].cells[0].text and "غير مُعدّ" in tbl.rows[4].cells[0].text and "اليوم" in tbl.rows[5].cells[0].text and "قادم (معتمد)" in tbl.rows[6].cells[0].text and "منفذ" not in tbl.rows[6].cells[0].text)
     txt = "\n".join(p_.text for p_ in doc.paragraphs)
     check("العنوان والفترة وتاريخ الإعداد وسطر التعداد", "كشف الخدمات اليومية" in txt and f"الفترة: من {fmt(iso(-4))} إلى {fmt(iso(4))}" in txt and f"تاريخ إعداد التقرير: {fmt(T.isoformat())}" in txt and "9 أيام" in txt)
     check("وسيلة الإيضاح في الملف (5 خلايا)", len(doc.tables[0].rows[0].cells) == 5 and "منفذ" in doc.tables[0].rows[0].cells[0].text and "غير مُعدّ" in doc.tables[0].rows[0].cells[4].text)
     xml = z.read("word/document.xml").decode("utf8")
+    check("صفحة Word أفقية A4 (16838×11906)", 'w:orient="landscape"' in xml and 'w:w="16838" w:h="11906"' in xml)
     check("اتجاه RTL: bidi على الفقرات والقسم وbidiVisual على الجدول وrtl على المقاطع", xml.count("<w:bidi/>") > 50 and "<w:bidiVisual/>" in xml and xml.count("<w:rtl/>") > 50 and re.search(r"<w:sectPr>.*<w:bidi/></w:sectPr>", xml))
     check("تظليل الحالات: منفذ (2 صفين×5 + الوسيلة)، غير محسوم (5+1)، اليوم بحدود سميكة", xml.count('w:fill="EEF0F2"') == 11 and xml.count('w:fill="FFF7E3"') == 6 and xml.count('w:sz="18"') >= 10)
     check("الصف لا ينقسم بين صفحتين ورأس الجدول يتكرر", xml.count("<w:cantSplit/>") >= 10 and xml.count("<w:tblHeader/>") == 1)
@@ -210,7 +269,10 @@ with sync_playwright() as p:
     r_ = subprocess.run(["soffice", "--headless", "--convert-to", "pdf", "--outdir", lo, path], capture_output=True, text=True, timeout=150)
     lp = f"{lo}/rp_export.pdf"
     check("LibreOffice يفتح الملف ويحوّله إلى PDF", os.path.exists(lp) and len(PdfReader(lp).pages) >= 1, r_.stderr[-120:])
-    check("نص الملف بعد الفتح يحوي كل التواريخ التسعة", all(fmt(iso(i)) in ptext(lp, 1) for i in range(-4, 5)))
+    lbox = PdfReader(lp).pages[0].mediabox
+    check("LibreOffice: الصفحة أفقية", float(lbox[2]) > float(lbox[3]), str(lbox))
+    check("نص الملف بعد الفتح يحوي كل التواريخ التسعة", all(fmt(iso(i)) in "".join(ptext(lp, k) for k in range(1, len(PdfReader(lp).pages) + 1)) for i in range(-4, 5)))
+    check("(تكرار) نص الملف الأول يحوي التواريخ", all(fmt(iso(i)) in ptext(lp, 1) for i in range(-4, 5)))
     subprocess.run(["pdftoppm", "-r", "75", "-png", lp, f"{OUT}/rp_export"], check=True)
     # تصدير مفلتر وطويل
     pg.fill("#rp-search", "بن ناصر")
@@ -220,7 +282,7 @@ with sync_playwright() as p:
     pg.click("#rp-reset"); period(pg, iso(-30), iso(29)); apply(pg)
     with pg.expect_download() as dl: pg.click("[data-action=export-word]")
     dl.value.save_as(f"{OUT}/rp_long.docx"); dlg = pydocx.Document(f"{OUT}/rp_long.docx")
-    check("تصدير 60 يومًا: كل الأيام في الملف (61 صفًا) لا ما يظهر على الشاشة فقط", len(dlg.tables[1].rows) == 61 and dlg.tables[1].rows[60].cells[0].text.startswith(fmt(iso(29))))
+    check("تصدير 60 يومًا: كل الأيام في الملف (61 صفًا) لا ما يظهر على الشاشة فقط", len(dlg.tables[1].rows) == 61 and fmt(iso(29)) in nbsp(dlg.tables[1].rows[60].cells[0].text))
     subprocess.run(["soffice", "--headless", "--convert-to", "pdf", "--outdir", lo, f"{OUT}/rp_long.docx"], capture_output=True, timeout=150)
     check("LibreOffice: الملف الطويل صفحات متعددة بكل التواريخ", len(PdfReader(f"{lo}/rp_long.pdf").pages) >= 2 and all(fmt(iso(i)) in "".join(ptext(f"{lo}/rp_long.pdf", k) for k in range(1, len(PdfReader(f"{lo}/rp_long.pdf").pages) + 1)) for i in range(-30, 30)))
 

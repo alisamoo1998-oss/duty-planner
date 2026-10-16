@@ -3,7 +3,7 @@
 // التعديل يتم من صفحة «برنامج الخدمات» الحالية عبر رابط «فتح اليوم» (#/services/YYYY-MM-DD) دون أي آلية تعديل جديدة.
 import { peopleApi, assignmentsApi, dailyApi } from "../db.js";
 import {
-  COLUMNS, TYPE_OPTIONS, LEGEND, validatePeriod, buildReport, filterNote, countsText,
+  COLUMNS, TYPE_OPTIONS, LEGEND, ALL_COLUMNS, COLUMN_CHOICES, validatePeriod, buildReport, filterNote, countsText,
 } from "../report-logic.js";
 import { buildDocxBytes, docxFileName } from "../docx.js";
 import { todayStr, formatDisplay } from "../dates.js";
@@ -24,27 +24,33 @@ function preparedNow() {
 }
 
 // ---------- عرض HTML ----------
-const nameHtml = (e) => {
+// الخلية: «عقون + شيباني + سيش». الاسم لا ينقسم بين سطرين (nowrap)، وعلامة + تلتصق بالاسم الذي قبلها.
+function tokenHtml(e, last) {
   const n = escapeHtml(e.name);
-  const hl = e.hit ? `<mark class="rp-hit">${n}</mark>` : n;
-  return `${hl}${e.driver ? ' <span class="car" title="سائق">🚗</span>' : ""}${e.inactive ? ' <span class="rp-muted">(غير نشط)</span>' : ""}`;
-};
-function entryHtml(e) {
-  if (e.note) return `<div class="rp-line rp-sub"><span class="rp-note">${escapeHtml(e.note)}:</span> ${nameHtml(e)}</div>`;
+  const nm = e.hit ? `<mark class="rp-hit">${n}</mark>` : n;
+  const car = e.driver ? ' <span class="car" title="سائق">🚗</span>' : "";
+  const ina = e.inactive ? ' <span class="rp-muted">(غير نشط)</span>' : "";
+  const plus = last ? "" : " +";
   if (e.kind) {
-    return `<div class="rp-line rp-${e.kind}">${nameHtml(e)} — ${escapeHtml(e.detail)}${e.span ? `<div class="rp-span">${escapeHtml(e.span)}</div>` : ""}</div>`;
+    // مهمة يدوية أو تكليف: الاسم لا ينقسم، وتفاصيل المهمة تلتف عند الحاجة
+    return `<span class="rp-n rp-task rp-${e.kind}"><span class="rp-nm">${nm}${car}${ina}</span> — ${escapeHtml(e.detail)}${e.span ? ` <span class="rp-span">${escapeHtml(e.span)}</span>` : ""}${plus}</span>`;
   }
-  return `<div class="rp-line">${nameHtml(e)}</div>`;
+  const note = e.note ? ` <span class="rp-note">(${escapeHtml(e.note)})</span>` : "";
+  return `<span class="rp-n">${nm}${car}${ina}${note}${plus}</span>`;
 }
-const cellHtml = (entries) => (entries.length ? entries.map(entryHtml).join("") : '<span class="rp-none">لا توجد</span>');
+const cellHtml = (entries) =>
+  entries.length ? `<div class="rp-names">${entries.map((e, i) => tokenHtml(e, i === entries.length - 1)).join(" ")}</div>` : '<span class="rp-none">لا توجد</span>';
 
-function rowHtml(r, columns) {
+function rowHtml(r, report) {
   const st = r.status;
   const label = `${st.kind === "done" ? "✓ " : ""}${escapeHtml(st.label)}${st.sub ? ` (${escapeHtml(st.sub)})` : ""}`;
-  return `<tr class="rp-row rp-${st.kind}" data-date="${r.date}">
-    <td class="rp-date"><strong class="rp-d">${formatDisplay(r.date)}</strong><span class="rp-wd">${escapeHtml(r.weekday)}</span>
-      <span class="rp-state">${label}</span><a class="rp-link no-print" href="#/services/${r.date}">فتح اليوم</a></td>
-    ${columns.map((c) => `<td class="rp-cell rp-c-${c}">${cellHtml(r.cells[c])}</td>`).join("")}
+  // اسم اليوم والتاريخ في سطر واحد، وتحتهما الحالة ورابط فتح اليوم
+  const dateCell = report.showDate
+    ? `<td class="rp-date"><span class="rp-dl"><span class="rp-wd">${escapeHtml(r.weekday)}</span> <strong class="rp-d">${formatDisplay(r.date)}</strong></span>
+      <span class="rp-state">${label}</span><a class="rp-link no-print" href="#/services/${r.date}">فتح اليوم</a></td>`
+    : "";
+  return `<tr class="rp-row rp-${st.kind}" data-date="${r.date}">${dateCell}
+    ${report.columns.map((c) => `<td class="rp-cell rp-c-${c}">${cellHtml(r.cells[c])}</td>`).join("")}
   </tr>`;
 }
 
@@ -69,9 +75,16 @@ export async function render(root) {
       <div class="rp-form rp-filters">
         <label class="field field-inline rp-grow"><span>بحث عن اسم فرد</span><input type="search" id="rp-search" placeholder="اكتب اسم الفرد" autocomplete="off"></label>
         <label class="field field-inline"><span>نوع الخدمة</span>
-          <select id="rp-type">${TYPE_OPTIONS.map((t) => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join("")}</select></label>
+          <select id="rp-type">${TYPE_OPTIONS.map((t) => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join("")}<option value="custom" disabled>أعمدة مخصّصة</option></select></label>
         <button class="btn" id="rp-reset" type="button">إعادة عرض الكشف الكامل</button>
       </div>
+      <fieldset class="rp-cols">
+        <legend>الأعمدة المعروضة في الكشف</legend>
+        <div class="rp-chips">
+          ${ALL_COLUMNS.map((c) => `<label class="rp-chip"><input type="checkbox" data-col="${c}" checked><span>${escapeHtml(COLUMN_CHOICES[c])}</span></label>`).join("")}
+        </div>
+        <p class="muted small">الكشف المطبوع والمُصدَّر يقتصر على الأعمدة المختارة بترتيبها المعتاد. إخفاء عمود (مثل المهام) لا يؤثر في عرض بقية الأعمدة.</p>
+      </fieldset>
       <div id="rp-msg" role="alert"></div>
       <div class="rp-actions">
         <button class="btn" type="button" data-action="print-report">🖨️ طباعة الكشف</button>
@@ -108,6 +121,15 @@ export async function render(root) {
     }
   }
 
+  // ---------- الأعمدة المختارة ----------
+  const checkedColumns = () => ALL_COLUMNS.filter((c) => $(`input[data-col="${c}"]`).checked);
+  const setColumns = (cols) => ALL_COLUMNS.forEach((c) => ($(`input[data-col="${c}"]`).checked = cols.includes(c)));
+  // «نوع الخدمة» اختصار سريع للأعمدة (التاريخ + عمود واحد)، والخانات هي المرجع؛ ويظهر «مخصّصة» إن لم يطابق أي اختصار
+  function syncPreset() {
+    const cs = checkedColumns();
+    $("#rp-type").value = cs.length === ALL_COLUMNS.length ? "all" : cs.length === 2 && cs[0] === "date" ? cs[1] : "custom";
+  }
+
   // ---------- الرسم ----------
   function draw() {
     const root_ = $("#rp-report");
@@ -117,7 +139,7 @@ export async function render(root) {
       report = buildReport({
         people: state.people, assignments: state.assignments, days: state.days,
         from: state.applied.from, to: state.applied.to, today: todayStr(),
-        search: $("#rp-search").value, type: $("#rp-type").value,
+        search: $("#rp-search").value, columns: checkedColumns(),
       });
     } catch (err) {
       root_.innerHTML = `<div class="notice notice-bad">${escapeHtml(err.message)}</div>`;
@@ -141,12 +163,12 @@ export async function render(root) {
       </ul>
       ${
         report.rows.length
-          ? `<div class="rp-wrap"><table class="rp-table" id="rp-table">
-              <thead><tr><th class="rp-date">التاريخ واليوم</th>${report.columns.map((c) => `<th class="rp-th-${c}">${escapeHtml(COLUMNS[c])}</th>`).join("")}</tr></thead>
-              <tbody>${report.rows.map((r) => rowHtml(r, report.columns)).join("")}</tbody></table></div>`
+          ? `<div class="rp-wrap"><table class="rp-table" id="rp-table" style="--rp-n:${report.columns.length + (report.showDate ? 1 : 0)}">
+              <thead><tr>${report.showDate ? '<th class="rp-date">التاريخ واليوم</th>' : ""}${report.columns.map((c) => `<th class="rp-th-${c}">${escapeHtml(COLUMNS[c])}</th>`).join("")}</tr></thead>
+              <tbody>${report.rows.map((r) => rowHtml(r, report)).join("")}</tbody></table></div>`
           : '<p class="notice notice-info rp-empty">لا توجد أيام مطابقة للبحث أو التصفية في هذه الفترة.</p>'
       }
-      <p class="rp-foot muted small">المائل في عمود المهام: تكليف مسجّل في صفحة التعيينات. «بديل»: اليوم الثاني من خدمة الخفارة أو الحراسة (48 ساعة) وليس خدمة جديدة.
+      <p class="rp-foot muted small">${report.columns.includes("tasks") ? "المائل في عمود المهام: تكليف مسجّل في صفحة التعيينات. " : ""}${report.columns.some((c) => c === "parmano" || c === "gard") ? "«(بديل)» بجانب الاسم: اليوم الثاني من خدمة الخفارة أو الحراسة (48 ساعة) وليس خدمة جديدة. " : ""}
         الأيام القادمة مخططة وقابلة للتعديل؛ الأيام المنفذة هي الأيام السابقة المعتمدة (final) فقط.</p>`;
   }
 
@@ -215,9 +237,25 @@ export async function render(root) {
     $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") apply(); });
   }
   $("#rp-search").addEventListener("input", draw);
-  $("#rp-type").addEventListener("change", draw);
+  $("#rp-type").addEventListener("change", (e) => {
+    const v = e.target.value;
+    setColumns(v === "all" ? ALL_COLUMNS : ["date", v]);
+    draw();
+  });
+  for (const box of page.querySelectorAll("input[data-col]")) {
+    box.addEventListener("change", () => {
+      if (!checkedColumns().length) {
+        box.checked = true; // لا يجوز إلغاء كل الأعمدة
+        toast("يجب إبقاء عمود واحد على الأقل.", "bad");
+        return;
+      }
+      syncPreset();
+      draw();
+    });
+  }
   $("#rp-reset").addEventListener("click", () => {
     $("#rp-search").value = "";
+    setColumns(ALL_COLUMNS);
     $("#rp-type").value = "all";
     draw();
   });

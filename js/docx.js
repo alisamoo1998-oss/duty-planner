@@ -2,7 +2,7 @@
 // DOCX = حزمة ZIP (بدون ضغط «stored») من أجزاء XML. يعمل في المتصفح وفي Node (للاختبار).
 // الاتجاه RTL: bidi على الفقرات والقسم، rtl على المقاطع، bidiVisual على الجدول (العمود الأول على اليمين).
 // ترتيب عناصر XML مطابق لمخطط OOXML لتجنّب رسالة «الملف تالف» في Word.
-import { LEGEND, COLUMNS } from "./report-logic.js";
+import { LEGEND, COLUMNS, nameText, SEPARATOR } from "./report-logic.js";
 import { formatDisplay } from "./dates.js";
 
 const FONT = "Tahoma";
@@ -99,67 +99,80 @@ const tableXml = (widths, rows) => {
     `<w:tblGrid>${widths.map((w) => `<w:gridCol w:w="${w}"/>`).join("")}</w:tblGrid>${rows.join("")}</w:tbl>`;
 };
 
-// نص سطر لفرد داخل خلية (نفس منطق العرض في الصفحة)
-export function entryText(e) {
-  const base = `${e.name}${e.driver ? " 🚗" : ""}${e.inactive ? " (غير نشط)" : ""}`;
-  if (e.note) return `${e.note}: ${base}`;
-  if (e.detail) return `${base} — ${e.detail}`;
-  return base;
-}
+// ---------- خلايا الأسماء ----------
+// كل خلية فقرة واحدة: «عقون + شيباني + سيش». الاسم لا ينقسم بين سطرين (مسافات غير قابلة للكسر داخله)،
+// وعلامة + تلتصق بالاسم الذي قبلها، فيلتف السطر بين الأسماء فقط إن ضاق العمود.
+const NBSP = "\u00A0";
+const atomic = (text) => text.replace(/ /g, NBSP);
+export const CELL_SIZE = 19; // 9.5pt: يتسع لأربعة أسماء راحة في سطر واحد على الصفحة الأفقية
 
-function cellParas(entries) {
+function cellPara(entries) {
   if (!entries.length) return para(run("لا توجد", { color: "666666", italic: true, size: 18 }));
-  return entries
-    .map((e) =>
-      // المطابق للبحث: عريض + مسطَّر (يظهر في الطباعة بالأبيض والأسود)؛ التكليف: مائل
-      para(run(entryText(e), { bold: e.hit, underline: e.hit, italic: e.kind === "assignment", size: 20 })) +
-      (e.span ? para(run(e.span, { italic: true, size: 17, color: "444444" })) : "")
-    )
-    .join("");
+  const parts = [];
+  entries.forEach((e, i) => {
+    const last = i === entries.length - 1;
+    const text = atomic(nameText(e)) + (e.detail ? ` — ${e.detail}` : "") + (last ? "" : `${NBSP}${SEPARATOR.trim()}`);
+    // المطابق للبحث: عريض + مسطَّر (يظهر في الطباعة بالأبيض والأسود)؛ التكليف: مائل
+    parts.push(run(text, { bold: e.hit, underline: e.hit, italic: e.kind === "assignment", size: CELL_SIZE }));
+    if (e.span) parts.push(run(` ${e.span}`, { italic: true, size: 16, color: "444444" }));
+    if (!last) parts.push(run(" ", { size: CELL_SIZE }));
+  });
+  return para(parts.join(""));
 }
 
 export function docxFileName(report) {
   return `كشف-الخدمات-${report.from}_${report.to}.docx`;
 }
 
+// عرض الأعمدة (twips) على صفحة A4 أفقية: عمود التاريخ ثابت، والمهام أعرض إن كانت بجانب غيرها، والبقية بالتساوي.
+// أي عمود مخفي لا يترك فراغًا: عرضه يُوزَّع على الأعمدة المعروضة.
+export const PAGE_TOTAL = 15100;
+export function columnWidths(report) {
+  const cols = report.columns;
+  if (!cols.length) return report.showDate ? [PAGE_TOTAL] : [];
+  const dateW = report.showDate ? 2300 : 0;
+  const tasksW = cols.includes("tasks") && cols.length > 1 ? 3800 : 0;
+  const flexCols = cols.length - (tasksW ? 1 : 0);
+  const flex = Math.floor((PAGE_TOTAL - dateW - tasksW) / flexCols);
+  return [...(report.showDate ? [dateW] : []), ...cols.map((c) => (c === "tasks" && tasksW ? tasksW : flex))];
+}
+
 // ---------- بناء المستند ----------
 // meta: { preparedAt: "dd/mm/yyyy hh:mm", filterNote: "", countsText: "" }
 export function buildDocxBytes(report, meta, when = new Date()) {
   const cols = report.columns;
-  // عرض الصفحة المتاح: A4 (11906) - هوامش 2×850 = 10206 twips. عمود التاريخ ثابت، والبقية بالتساوي
-  const total = 10200;
-  const dateW = cols.length === 4 ? 1700 : 1900;
-  // عمود المهام أعرض (يحمل اسم الفرد والمهمة ومدتها)؛ بقية الأعمدة متساوية
-  const wide = { tasks: cols.length === 4 ? 2750 : null };
-  const fixed = cols.reduce((a, c) => a + (wide[c] || 0), 0);
-  const flexCols = cols.filter((c) => !wide[c]).length;
-  const flex = flexCols ? Math.floor((total - dateW - fixed) / flexCols) : 0;
-  const widths = [dateW, ...cols.map((c) => wide[c] || (flexCols ? flex : total - dateW))];
+  const widths = columnWidths(report);
+  const dataWidths = report.showDate ? widths.slice(1) : widths;
 
-  const head = row([
-    cell(widths[0], para(run("التاريخ واليوم", { bold: true, size: 20 })), { fill: "D9DEE3" }),
-    ...cols.map((c, i) => cell(widths[i + 1], para(run(COLUMNS[c], { bold: true, size: 20 })), { fill: "D9DEE3" })),
-  ], { header: true });
+  const headCells = [];
+  if (report.showDate) headCells.push(cell(widths[0], para(run("التاريخ واليوم", { bold: true, size: 20 })), { fill: "D9DEE3" }));
+  cols.forEach((c, i) => headCells.push(cell(dataWidths[i], para(run(COLUMNS[c], { bold: true, size: 20 })), { fill: "D9DEE3" })));
+  const head = row(headCells, { header: true });
 
   const body = report.rows.map((r) => {
     const k = r.status.kind;
     const fill = SHADE[k];
     const thick = k === "today";
     const label = [r.status.label, r.status.sub ? `(${r.status.sub})` : ""].filter(Boolean).join(" ");
-    const dateCell = cell(
-      widths[0],
-      para(run(formatDisplay(r.date), { bold: true, size: 20 })) +
-        para(run(r.weekday, { size: 19 })) +
-        para(run(k === "done" ? `✓ ${label}` : label, { size: 17, bold: k === "today", italic: k === "missing", color: "333333" })),
-      { fill, thick }
-    );
-    return row([dateCell, ...cols.map((c, i) => cell(widths[i + 1], cellParas(r.cells[c]), { fill, thick }))]);
+    const cells = [];
+    if (report.showDate) {
+      cells.push(cell(
+        widths[0],
+        // اسم اليوم والتاريخ في سطر واحد
+        para(run(`${r.weekday}${NBSP}`, { size: 19 }) + run(formatDisplay(r.date), { bold: true, size: 20 })) +
+          para(run(k === "done" ? `✓ ${label}` : label, { size: 17, bold: k === "today", italic: k === "missing", color: "333333" })),
+        { fill, thick }
+      ));
+    }
+    cols.forEach((c, i) => cells.push(cell(dataWidths[i], cellPara(r.cells[c]), { fill, thick })));
+    return row(cells);
   });
 
   // وسيلة الإيضاح: صف واحد بخلايا مظللة كما في الجدول، والنص يكفي وحده عند الطباعة بالأبيض والأسود
-  const lw = Math.floor(total / LEGEND.length);
+  const lw = Math.floor(PAGE_TOTAL / LEGEND.length);
   const legendRow = row(LEGEND.map((l) => cell(lw, para(run(l.text, { size: 16 })), { fill: SHADE[l.kind], thick: l.kind === "today" })));
 
+  const mainTable = report.showDate || cols.length ? tableXml(widths, [head, ...body]) : "";
   const lines = [
     para(run("كشف الخدمات اليومية", { bold: true, size: 36 }), { center: true, after: 80 }),
     para(run(`الفترة: من ${formatDisplay(report.from)} إلى ${formatDisplay(report.to)}`, { bold: true, size: 24 }), { center: true, after: 40 }),
@@ -169,13 +182,14 @@ export function buildDocxBytes(report, meta, when = new Date()) {
     para(run("وسيلة الإيضاح:", { bold: true, size: 18 }), { before: 80, after: 40, keepNext: true }),
     tableXml(Array(LEGEND.length).fill(lw), [legendRow]),
     para("", { after: 80 }),
-    tableXml(widths, [head, ...body]),
-    para(run("الأسطر المائلة في عمود المهام تكليفات مسجّلة في صفحة التعيينات. «بديل» يعني اليوم الثاني من خدمة الخفارة أو الحراسة (48 ساعة) وليس خدمة جديدة. الأيام القادمة مخطط لها وقابلة للتعديل.", { size: 16, color: "444444" }), { before: 80 }),
+    mainTable,
+    para(run(`${cols.includes("tasks") ? "الأسطر المائلة في عمود المهام تكليفات مسجّلة في صفحة التعيينات. " : ""}${cols.some((c) => c === "parmano" || c === "gard") ? "«(بديل)» بجانب الاسم يعني اليوم الثاني من خدمة الخفارة أو الحراسة (48 ساعة) وليس خدمة جديدة. " : ""}الأيام القادمة مخطط لها وقابلة للتعديل.`, { size: 16, color: "444444" }), { before: 80 }),
   ].join("");
 
   const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+  // صفحة A4 أفقية (16838×11906) ليتسع اسما الراحة الأربعة وأكثر في سطر واحد
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body>${lines}` +
-    `<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="450" w:footer="450" w:gutter="0"/><w:bidi/></w:sectPr></w:body></w:document>`;
+    `<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="450" w:footer="450" w:gutter="0"/><w:bidi/></w:sectPr></w:body></w:document>`;
 
   const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
     `<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="${FONT}" w:hAnsi="${FONT}" w:eastAsia="${FONT}" w:cs="${FONT}"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="en-US" w:eastAsia="en-US" w:bidi="ar-SA"/></w:rPr></w:rPrDefault>` +
